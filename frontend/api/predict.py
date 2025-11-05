@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # --- Load model globally (once per serverless instance) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(BASE_DIR, "..", "model", "random_forest_model.pkl")
+model_path = os.path.join(BASE_DIR, "..", "model", "random_forest_model_quantity.pkl")
 model_data = joblib.load(model_path)
 
 model = model_data["model"]
