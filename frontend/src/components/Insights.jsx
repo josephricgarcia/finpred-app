@@ -116,11 +116,7 @@ const Insights = () => {
       'bg-cyan-500',
       'bg-emerald-500',
     ];
-    const fixedMap = {
-      tilapia: 'bg-red-500',
-      'koi carp': 'bg-yellow-500',
-      koi: 'bg-yellow-500',
-    };
+
     return (species) => {
       const key = species.toString().trim().toLowerCase();
       if (fixedMap[key]) return fixedMap[key];
