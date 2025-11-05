@@ -6,36 +6,40 @@ import os
 
 app = Flask(__name__)
 
-# --- Load model and artefacts -------------------------------------------------
+# ----------------------------------------------------------------------
+# 1️⃣ LOAD TRAINED MODEL AND ENCODERS
+# ----------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "..", "model", "random_forest_model_quantity.pkl")
 
-loaded = joblib.load(MODEL_PATH)
-model = loaded["model"]
-label_encoders = loaded["label_encoders"]
-month_mapping = loaded["month_mapping"]          # {'January':1, ...}
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
 
-# Dynamically build valid sets from the encoders (exact classes used in training)
-VALID_SPECIES = set(label_encoders['Species'].classes_)
-VALID_TRANSACTION_TYPES = set(label_encoders['Transaction Type'].classes_)
+loaded_data = joblib.load(MODEL_PATH)
+rf_model = loaded_data["model"]
+label_encoders = loaded_data["label_encoders"]
+month_mapping = loaded_data["month_mapping"]
 
+print("✅ Model and encoders loaded successfully!")
 
+# ----------------------------------------------------------------------
+# 2️⃣ API ENDPOINT — PREDICTION
+# ----------------------------------------------------------------------
 @app.route("/", methods=["POST"])
 def predict():
     try:
         data = request.get_json(force=True)
+        print(f"📩 Incoming data: {data}")
 
-        # --------------------------------------------------------------------
-        # 1. Extract & basic validation
-        # --------------------------------------------------------------------
-        raw_month = data.get('Month')                     # can be int (1-12) or month name
-        year = int(data['Year'])
-        municipality = str(data['Municipality']).strip()
-        transaction_type = str(data['Transaction_Type']).strip()
-        cost = float(data['Cost'])
-        species = str(data['Species']).strip()
+        # --- Extract and validate input fields ---
+        raw_month = data.get("Month")
+        year = int(data["Year"])
+        municipality = str(data["Municipality"]).strip()
+        transaction_type = str(data["Transaction Type"]).strip()
+        species = str(data["Species"]).strip()
+        cost = float(data["Cost"])
 
-        # ---- Month handling ------------------------------------------------
+        # --- Convert month name to numeric using mapping ---
         if isinstance(raw_month, str) and raw_month in month_mapping:
             month = month_mapping[raw_month]
         else:
@@ -44,60 +48,33 @@ def predict():
                 if not (1 <= month <= 12):
                     raise ValueError
             except Exception:
-                return jsonify({"error": "Month must be 1-12 or a valid month name"}), 400
+                return jsonify({"error": "Month must be 1–12 or a valid month name"}), 400
 
-        # ---- Cost rules ----------------------------------------------------
-        if transaction_type not in VALID_TRANSACTION_TYPES:
-            return jsonify({
-                "error": f"Invalid Transaction_Type. Must be one of: {', '.join(VALID_TRANSACTION_TYPES)}"
-            }), 400
-
-        if transaction_type == 'Dispersal':
-            if cost != 0:
-                return jsonify({"error": "Cost must be 0 for Dispersal"}), 400
-        else:  # Sale
-            if cost <= 0:
-                return jsonify({"error": "Cost must be > 0 for Sale"}), 400
-
-        # ---- Species -------------------------------------------------------
-        if species not in VALID_SPECIES:
-            return jsonify({
-                "error": f"Invalid Species. Choose from: {', '.join(VALID_SPECIES)}"
-            }), 400
-
-        # --------------------------------------------------------------------
-        # 2. Encode using the **exact** LabelEncoders from training
-        # --------------------------------------------------------------------
+        # --- Encode categorical columns (same LabelEncoders used in training) ---
         try:
-            municipality_enc = label_encoders['Municipality'].transform([municipality])[0]
-            transaction_enc   = label_encoders['Transaction Type'].transform([transaction_type])[0]
-            species_enc       = label_encoders['Species'].transform([species])[0]
+            municipality_enc = label_encoders["Municipality"].transform([municipality])[0]
+            transaction_enc = label_encoders["Transaction Type"].transform([transaction_type])[0]
+            species_enc = label_encoders["Species"].transform([species])[0]
         except ValueError as ve:
             return jsonify({"error": f"Unknown category: {ve}"}), 400
 
-        # --------------------------------------------------------------------
-        # 3. Build feature vector (order must match training)
-        # --------------------------------------------------------------------
-        X_input = np.array([[
-            month,
-            year,
-            municipality_enc,
-            transaction_enc,
-            cost,
-            species_enc
-        ]])
+        # --- Feature order must exactly match training ---
+        X_input = np.array([[month, year, municipality_enc, transaction_enc, cost, species_enc]])
 
-        # --------------------------------------------------------------------
-        # 4. Predict & post-process (same as training notebook)
-        # --------------------------------------------------------------------
-        pred = model.predict(X_input)
+        # --- Predict using trained Random Forest model ---
+        pred = rf_model.predict(X_input)
         pred = np.clip(np.round(pred), 0, None).astype(int)
 
+        print(f"✅ Predicted Quantity: {int(pred[0])}")
         return jsonify({"predicted_quantity": int(pred[0])})
 
     except Exception as e:
+        print(f"❌ Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
+# ----------------------------------------------------------------------
+# 3️⃣ SERVER RUNNER
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
