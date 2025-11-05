@@ -1,23 +1,7 @@
-// Prediction.jsx
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar.jsx';
 import { useUser } from '../contexts/UserContext';
 import supabase from '../helper/supabaseClient';
-
-// --------------------------------------------------------------
-// Utility functions
-// --------------------------------------------------------------
-const monthName = (num) => [
-  '', 'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-][num];
-
-const toTitleCase = (str) =>
-  str
-    .toLowerCase()
-    .split(' ')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
 
 const Field = ({ label, children }) => (
   <div className="flex flex-col gap-2">
@@ -27,217 +11,272 @@ const Field = ({ label, children }) => (
 );
 
 const Card = ({ title, children, footer, header }) => (
-  <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
-    <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+  <div className="bg-white border border-gray-200 rounded-xl">
+    <div className="px-6 py-4 border-b border-gray-200">
       {header || <h2 className="text-lg font-semibold text-gray-900">{title}</h2>}
     </div>
-    <div className="p-6">{children}</div>
-    {footer ? (
-      <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">{footer}</div>
-    ) : null}
+    <div className="p-6">
+      {children}
+    </div>
+    {footer ? <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">{footer}</div> : null}
   </div>
 );
 
-// --------------------------------------------------------------
-// Main Component
-// --------------------------------------------------------------
+const MUNICIPALITY_MAP = {
+  'alburquerque': 1,
+  'alicia': 2,
+  'antequera': 3,
+  'baclayon': 4,
+  'balilihan': 5,
+  'batuan': 6,
+  'bien unido': 7,
+  'bilar': 8,
+  'buenavista': 9,
+  'calape': 10,
+  'candijay': 11,
+  'carmen': 12,
+  'catigbian': 13,
+  'clarin': 14,
+  'corella': 15,
+  'cortes': 16,
+  'dagohoy': 17,
+  'danao': 18,
+  'dauis': 19,
+  'dimiao': 20,
+  'duero': 21,
+  'garcia hernandez': 22,
+  'getafe': 23,
+  'guindulman': 24,
+  'inabanga': 25,
+  'jagna': 26,
+  'lila': 27,
+  'loon': 28,
+  'mabini': 29,
+  'maribojoc': 30,
+  'panglao': 31,
+  'pilar': 32,
+  'president carlos p. garcia': 33,
+  'sagbayan': 34,
+  'san isidro': 35,
+  'san miguel': 36,
+  'sevilla': 37,
+  'sierra bullones': 38,
+  'sikatuna': 39,
+  'tagbilaran': 40,
+  'talibon': 41,
+  'trinidad': 42,
+  'tubigon': 43,
+  'ubay': 44,
+  'valencia': 45,
+};
+
+const toTitleCase = (str) => {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 const Prediction = () => {
   const { userData, isAuthenticated } = useUser();
-
-  // ---------- Form states ----------
-  const [monthPicker, setMonthPicker] = useState('');
+  const [month, setMonth] = useState('');
   const [species, setSpecies] = useState('');
   const [municipality, setMunicipality] = useState('');
   const [transactionType, setTransactionType] = useState('');
   const [cost, setCost] = useState('');
+  const [predictionHistory, setPredictionHistory] = useState([]);
   const [predictedQuantity, setPredictedQuantity] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // ---------- History state ----------
-  const [predictionHistory, setPredictionHistory] = useState([]);
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
-  // --------------------------------------------------------------
-  // Load user prediction history
-  // --------------------------------------------------------------
-  useEffect(() => {
-    const fetchHistory = async () => {
-      if (!isAuthenticated || !userData?.uid) return;
+useEffect(() => {
+  const fetchHistory = async () => {
+    if (!isAuthenticated || !userData?.uid) return;
+    const { data, error } = await supabase
+      .from('prediction_records')
+      .select('*')
+      .eq('userId', userData.uid)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Error fetching prediction history:', error);
+    } else {
+      setPredictionHistory(data || []);
+    }
+  };
+  fetchHistory();
+}, [isAuthenticated, userData]);
 
-      const { data, error } = await supabase
-        .from('prediction_records')
-        .select('*')
-        .eq('userId', userData.uid)
-        .order('created_at', { ascending: false });
 
-      if (error) console.error('Error fetching history:', error);
-      else setPredictionHistory(data || []);
-    };
-
-    fetchHistory();
-  }, [isAuthenticated, userData]);
-
-  // --------------------------------------------------------------
-  // Generate prediction using Flask API
-  // --------------------------------------------------------------
   const generatePrediction = async () => {
-    if (!monthPicker || !municipality || !species || !transactionType || cost === '') {
-      alert('⚠️ Please fill all required fields.');
+    if (!month || !municipality || !cost || !species || !transactionType) {
+      alert("Please fill all required fields.");
       return;
     }
 
-    const [year, monthStr] = monthPicker.split('-');
-    const monthNum = parseInt(monthStr, 10);
-    const monthNameStr = monthName(monthNum);
+    if (transactionType === '0' && parseFloat(cost) === 0) {
+      alert("Cost must be greater than 0 for Sale transactions.");
+      return;
+    }
+
+    if (!isAuthenticated || !userData?.uid) {
+      alert("You must log in first.");
+      return;
+    }
+
+
+    const monthNum = parseInt(month.split("-")[1]);
+    const yearNum = parseInt(month.split("-")[0]);
+    const speciesMap = { 'Tilapia': 1, 'Koi Carp': 2, 'Common Carp': 3, 'Hito': 4 };
 
     const payload = {
-      Month: monthNameStr,
-      Year: parseInt(year, 10),
-      Municipality: municipality.trim(),
-      "Transaction Type": transactionType.trim(),
-      Cost: transactionType === 'Dispersal' ? 0 : parseFloat(cost),
-      Species: species.trim(),
+      Month: monthNum,
+      Year: yearNum,
+      Municipality: MUNICIPALITY_MAP[municipality],
+      Transaction_Type: parseInt(transactionType),
+      Cost: parseFloat(cost),
+      Species: speciesMap[species]
     };
 
     try {
       setLoading(true);
-
-      // --- Send request to Flask backend ---
-      const res = await fetch('/api/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const res = await fetch("http://localhost:5000/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
       });
 
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Prediction request failed');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `Server error: ${res.status} ${res.statusText}`);
+      }
 
-      // --- Display predicted value ---
-      setPredictedQuantity(result.predicted_quantity);
+      const data = await res.json();
+      
+      if (!data.predicted_quantity && data.predicted_quantity !== 0) {
+        throw new Error('Invalid prediction response from server');
+      }
 
-      // --- Save prediction record to Supabase ---
+      setPredictedQuantity(data.predicted_quantity);
+
+      const newPrediction = {
+        userId: userData.uid,
+        month,
+        municipality: toTitleCase(municipality),
+        species,
+        transaction_type: parseInt(transactionType),
+        cost: parseFloat(cost),
+        predicted_quantity: data.predicted_quantity,
+      };
+
       const { data: inserted, error: insertError } = await supabase
         .from('prediction_records')
-        .insert({
-          userId: userData.uid,
-          month: monthPicker,
-          municipality: toTitleCase(municipality),
-          species,
-          transaction_type: transactionType,
-          cost: payload.Cost,
-          predicted_quantity: result.predicted_quantity,
-        })
+        .insert(newPrediction)
         .select('*')
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('Error inserting prediction:', insertError);
+        alert(`Error saving prediction: ${insertError.message || 'Database error'}`);
+        return;
+      }
 
-      // --- Update local history ---
-      setPredictionHistory((prev) => [inserted, ...prev]);
-      resetForm();
-    } catch (err) {
-      console.error(err);
-      alert(`❌ Error: ${err.message}`);
+      setPredictionHistory(prev => [inserted, ...prev]);
+      setMonth('');
+      setSpecies('');
+      setMunicipality('');
+      setTransactionType('');
+      setCost('');
+    } catch (error) {
+      console.error("Prediction error:", error);
+      alert(`Error: ${error.message || 'Failed to generate prediction. Please try again.'}`);
       setPredictedQuantity(null);
     } finally {
       setLoading(false);
     }
   };
 
-  // --------------------------------------------------------------
-  // Delete prediction from Supabase
-  // --------------------------------------------------------------
   const deletePrediction = async (id) => {
-    const { error } = await supabase.from('prediction_records').delete().eq('id', id);
-    if (error) {
-      alert('Failed to delete prediction.');
-    } else {
-      setPredictionHistory((prev) => prev.filter((rec) => rec.id !== id));
+    try {
+      const { error } = await supabase
+        .from('prediction_records')
+        .delete()
+        .eq('id', id);
+      if (error) {
+        console.error('Error deleting prediction:', error);
+        alert(`Error deleting prediction: ${error.message || 'Database error'}`);
+      } else {
+        setPredictionHistory(prev => prev.filter(p => p.id !== id));
+      }
+    } catch (err) {
+      console.error('Error deleting prediction:', err);
+      alert('Failed to delete prediction. Please try again.');
     }
   };
 
-  // --------------------------------------------------------------
-  // Reset form
-  // --------------------------------------------------------------
-  const resetForm = () => {
-    setMonthPicker('');
-    setSpecies('');
-    setMunicipality('');
-    setTransactionType('');
-    setCost('');
-  };
-
-  // --------------------------------------------------------------
-  // UI
-  // --------------------------------------------------------------
   return (
     <div className="flex min-h-screen bg-blue-50">
       <Sidebar />
       <div className="flex-1 p-8 ml-64">
         <div className="max-w-10xl mx-auto">
-          {/* Header */}
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-semibold text-gray-900">Prediction</h1>
-              <p className="text-gray-600 mt-1">Estimate fish quantity using the trained Random Forest model</p>
+              <p className="text-gray-600 mt-1">Estimate quantity based on inputs using the trained model</p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            {/* Input Card */}
             <div className="lg:col-span-1">
-              <Card title="Prediction Inputs">
+              <Card title="Inputs">
                 <div className="flex flex-col gap-4">
-                  {/* Month */}
-                  <Field label="Target Month">
-                    <input
-                      type="month"
-                      min="2019-01"
-                      max="2025-12"
-                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                      value={monthPicker}
-                      onChange={(e) => setMonthPicker(e.target.value)}
-                    />
-                  </Field>
-
-                  {/* Species */}
+                <Field label="Target Month">
+                  <input
+                    type="month"
+                    min="2019-01"
+                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none hover:border-gray-400 transition-colors"
+                    value={month}
+                    onChange={(e) => setMonth(e.target.value)}
+                  />
+                </Field>
                   <Field label="Species">
                     <select
-                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none cursor-pointer"
+                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none hover:border-gray-400 transition-colors cursor-pointer"
                       value={species}
                       onChange={(e) => setSpecies(e.target.value)}
                     >
                       <option value="">Select species...</option>
-                      {['Tilapia', 'Koi Carp', 'Common Carp', 'Hito'].map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                      <option value="Tilapia">Tilapia</option>
+                      <option value="Koi Carp">Koi Carp</option>
+                      <option value="Common Carp">Common Carp</option>
+                      <option value="Hito">Hito</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Municipality">
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none cursor-pointer"
+                      value={municipality}
+                      onChange={(e) => setMunicipality(e.target.value)}
+                    >
+                      <option value="">Select municipality...</option>
+                      {[
+                        'Alburquerque', 'Alicia', 'Antequera', 'Baclayon', 'Balilihan', 'Batuan',
+                        'Bien Unido', 'Bilar', 'Buenavista', 'Calape', 'Candijay', 'Carmen',
+                        'Catigbian', 'Clarin', 'Corella', 'Cortes', 'Dagohoy', 'Danao', 'Dauis',
+                        'Dimiao', 'Duero', 'Garcia Hernandez', 'Getafe', 'Guindulman',
+                        'Inabanga', 'Jagna', 'Lila', 'Loon', 'Mabini', 'Maribojoc', 'Panglao',
+                        'Pilar', 'Pres. Carlos P. Garcia', 'Sagbayan', 'San Isidro', 'San Miguel',
+                        'Sevilla', 'Sierra Bullones', 'Sikatuna', 'Tagbilaran', 'Talibon',
+                        'Trinidad', 'Tubigon', 'Ubay', 'Valencia'
+                      ].map((m) => (
+                        <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
                   </Field>
 
-                  {/* Municipality */}
-                  <Field label="Municipality">
-                    <input
-                      type="text"
-                      list="municipality-options"
-                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                      value={municipality}
-                      onChange={(e) => setMunicipality(e.target.value)}
-                      placeholder="e.g. Balilihan"
-                    />
-                    <datalist id="municipality-options">
-                      {[
-                        'Alburquerque', 'Alicia', 'Antequera', 'Baclayon', 'Balilihan', 'Batuan', 'Bien Unido', 'Bilar',
-                        'Buenavista', 'Calape', 'Candijay', 'Carmen', 'Catigbian', 'Clarin', 'Corella', 'Cortes', 'Dagohoy',
-                        'Danao', 'Dauis', 'Dimiao', 'Duero', 'Garcia Hernandez', 'Getafe', 'Guindulman', 'Inabanga',
-                        'Jagna', 'Lila', 'Loon', 'Mabini', 'Maribojoc', 'Panglao', 'Pilar', 'Pres. Carlos P. Garcia',
-                        'Sagbayan', 'San Isidro', 'San Miguel', 'Sevilla', 'Sierra Bullones', 'Sikatuna', 'Tagbilaran',
-                        'Talibon', 'Trinidad', 'Tubigon', 'Ubay', 'Valencia'
-                      ].map((m) => (
-                        <option key={m} value={m} />
-                      ))}
-                    </datalist>
-                  </Field>
 
-                  {/* Transaction Type */}
                   <Field label="Transaction Type">
                     <select
                       className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none cursor-pointer"
@@ -248,29 +287,33 @@ const Prediction = () => {
                       }}
                     >
                       <option value="">Select type...</option>
-                      <option value="Sale">Sale</option>
                       <option value="Dispersal">Dispersal</option>
+                      <option value="Sale">Sale</option>
                     </select>
                   </Field>
 
-                  {/* Cost */}
-                  <Field label="Cost (₱)">
+                  <Field label="Cost">
                     <input
                       type="number"
-                      min={transactionType === 'Sale' ? '0.01' : '0'}
+                      min={transactionType === '0' ? '1' : '0'}
                       step="0.01"
-                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none disabled:bg-gray-100"
+                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none hover:border-gray-400 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
                       value={cost}
-                      onChange={(e) => setCost(e.target.value)}
-                      disabled={transactionType === 'Dispersal'}
-                      placeholder={transactionType === 'Dispersal' ? '0 (Fixed)' : 'e.g. 120'}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (transactionType === '0' && value === '0') {
+                          return; // Don't update if sale type and value is 0
+                        }
+                        setCost(value);
+                      }}
+                      placeholder="e.g. 120"
+                      disabled={transactionType === '1'}
                     />
                   </Field>
-
                   <button
                     onClick={generatePrediction}
                     disabled={loading}
-                    className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                    className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? 'Generating...' : 'Generate Prediction'}
                   </button>
@@ -278,92 +321,96 @@ const Prediction = () => {
               </Card>
             </div>
 
-            {/* Results & History */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Result */}
-              <Card title="Predicted Quantity">
-                <div className="flex flex-col gap-2 items-center text-center">
-                  <p className="text-5xl font-bold text-gray-900">
-                    {predictedQuantity !== null ? predictedQuantity.toLocaleString() : 'N/A'}
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    {predictedQuantity !== null
-                      ? 'Predicted by trained Random Forest model'
-                      : 'Enter inputs and click Generate Prediction'}
-                  </p>
-                </div>
-              </Card>
-
-              {/* History */}
-              <Card
-                title="Prediction History"
-                header={
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-lg font-semibold text-gray-900">Prediction History</h2>
-                    {predictionHistory.length > 0 && (
-                      <p className="text-sm text-gray-600">
-                        Last updated:{" "}
-                        {new Date(predictionHistory[0].created_at).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                }
-              >
-                {predictionHistory.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">No predictions saved yet.</p>
-                    <p className="text-sm text-gray-400 mt-1">
-                      Generate a prediction to start tracking your records.
+            <div className="lg:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card title="Predicted Quantity">
+                  <div className="flex flex-col gap-2">
+                    <p className="text-4xl font-semibold text-gray-900">
+                      {predictedQuantity !== null 
+                        ? predictedQuantity.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                        : 'N/A'
+                      }
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {predictedQuantity !== null 
+                        ? `Predicted by trained model`
+                        : `Enter values and generate prediction`
+                      }
                     </p>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    {predictionHistory.slice(0, 5).map((rec) => (
-                      <div key={rec.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex justify-end mb-2">
-                          <button
-                            onClick={() => deletePrediction(rec.id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-600">Municipality</p>
-                            <p className="font-medium">{rec.municipality}</p>
+                </Card>
+              </div>
+
+              <div className="mt-6">
+                  <Card 
+                    title="Prediction History"
+                    header={
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-lg font-semibold text-gray-900">Prediction History</h2>
+                        {predictionHistory.length > 0 && (
+                          <p className="text-sm text-gray-600">
+                            {new Date(predictionHistory[0].created_at).toLocaleDateString()} at {new Date(predictionHistory[0].created_at).toLocaleTimeString()}
+                          </p>
+                        )}
+                      </div>
+                    }
+                  >
+                    {predictionHistory.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-gray-500">No predictions saved yet.</p>
+                        <p className="text-sm text-gray-400 mt-1">Generate a prediction to start tracking history.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex justify-end items-start mb-3">
+                            <button
+                              onClick={() => deletePrediction(predictionHistory[0].id)}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            >
+                              Delete
+                            </button>
                           </div>
-                          <div>
-                            <p className="text-gray-600">Date</p>
-                            <p className="font-medium">
-                              {(() => {
-                                const [y, m] = rec.month.split('-');
-                                return `${monthName(parseInt(m))} ${y}`;
-                              })()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-600">Species</p>
-                            <p className="font-medium">{rec.species}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-600">Type</p>
-                            <p className="font-medium">{rec.transaction_type}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-600">Cost</p>
-                            <p className="font-medium">₱{Number(rec.cost).toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-600">Predicted Quantity</p>
-                            <p className="font-medium">{rec.predicted_quantity.toLocaleString()}</p>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-sm text-gray-600">Target Municipality</p>
+                              <p className="font-medium">{predictionHistory[0].municipality}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Target Date</p>
+                              <p className="font-medium">
+                                {predictionHistory[0].month 
+                                  ? (() => {
+                                      const parts = predictionHistory[0].month.split('-');
+                                      return `${parts[1]}-${parts[0]}`;
+                                    })()
+                                  : predictionHistory[0].month
+                                }
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Species</p>
+                              <p className="font-medium">{predictionHistory[0].species}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Transaction Type</p>
+                              <p className="font-medium">{predictionHistory[0].transaction_type === 0 ? 'Sale' : 'Dispersal'}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Cost</p>
+                              <p className="font-medium">{predictionHistory[0].cost.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Predicted Quantity</p>
+                              <p className="font-medium">{predictionHistory[0].predicted_quantity.toLocaleString()}</p>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
+                    )}
+                  </Card>
+              </div>
             </div>
           </div>
         </div>
