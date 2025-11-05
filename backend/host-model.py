@@ -8,7 +8,7 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Load model and encoders ---
-model_data = joblib.load("model/random_forest_model.pkl")
+model_data = joblib.load("model/random_forest_model_quantity.pkl")
 
 # Extract actual components
 model = model_data["model"]
