@@ -16,24 +16,31 @@ const Card = ({ title, children, footer, header }) => (
     <div className="px-6 py-4 border-b border-gray-200">
       {header || <h2 className="text-lg font-semibold text-gray-900">{title}</h2>}
     </div>
-    <div className="p-6">
-      {children}
-    </div>
+    <div className="p-6">{children}</div>
     {footer ? <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">{footer}</div> : null}
   </div>
 );
 
-const toTitleCase = (str) => {
-  return str
+const toTitleCase = (str) =>
+  str
     .toLowerCase()
     .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
+
+const monthName = (num) => {
+  const names = [
+    '', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  return names[num];
 };
 
 const Prediction = () => {
   const { userData, isAuthenticated } = useUser();
-  const [month, setMonth] = useState(''); // YYYY-MM
+
+  // ---------- Form state ----------
+  const [monthPicker, setMonthPicker] = useState(''); // "YYYY-MM"
   const [species, setSpecies] = useState('');
   const [municipality, setMunicipality] = useState('');
   const [transactionType, setTransactionType] = useState('');
@@ -42,6 +49,7 @@ const Prediction = () => {
   const [predictedQuantity, setPredictedQuantity] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // ---------- Load history ----------
   useEffect(() => {
     const fetchHistory = async () => {
       if (!isAuthenticated || !userData?.uid) return;
@@ -50,90 +58,72 @@ const Prediction = () => {
         .select('*')
         .eq('userId', userData.uid)
         .order('created_at', { ascending: false });
-      if (error) {
-        console.error('Error fetching prediction history:', error);
-      } else {
-        setPredictionHistory(data || []);
-      }
+      if (error) console.error('History error:', error);
+      else setPredictionHistory(data || []);
     };
     fetchHistory();
   }, [isAuthenticated, userData]);
 
+  // ---------- Prediction ----------
   const generatePrediction = async () => {
-    if (!month || !municipality || !species || !transactionType || cost === '') {
-      alert("Please fill all required fields.");
+    if (!monthPicker || !municipality || !species || !transactionType || cost === '') {
+      alert('Please fill all required fields.');
       return;
     }
 
-    if (transactionType === 'Sale' && parseFloat(cost) <= 0) {
-      alert("Cost must be greater than 0 for Sale transactions.");
-      return;
-    }
-
-    if (!isAuthenticated || !userData?.uid) {
-      alert("You must log in first.");
-      return;
-    }
-
-    const [year, monthStr] = month.split('-');
-    const monthNum = parseInt(monthStr, 10); // 1-12
+    const [year, monthStr] = monthPicker.split('-');
+    const monthNum = parseInt(monthStr, 10);
+    const monthNameStr = monthName(monthNum); // e.g. "April"
 
     const payload = {
-      Month: monthNum,
-      Year: parseInt(year),
-      Municipality: municipality.trim(),           // raw string
-      Transaction_Type: transactionType.trim(),    // "Sale" or "Dispersal"
-      Cost: parseFloat(cost),
-      Species: species.trim()                      // raw species name
+      Month: monthNameStr,               // <-- backend now understands month name
+      Year: parseInt(year, 10),
+      Municipality: municipality.trim(),
+      Transaction_Type: transactionType.trim(),
+      Cost: transactionType === 'Dispersal' ? 0 : parseFloat(cost),
+      Species: species.trim(),
     };
 
     try {
       setLoading(true);
-      const res = await fetch("/api/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+      const res = await fetch('/api/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `Server ${res.status}`);
       }
 
-      const data = await res.json();
-      if (data.predicted_quantity === undefined) {
-        throw new Error('Invalid prediction response');
-      }
+      const { predicted_quantity } = await res.json();
+      setPredictedQuantity(predicted_quantity);
 
-      setPredictedQuantity(data.predicted_quantity);
-
-      const newPrediction = {
+      // ---- Save to Supabase ----
+      const newRec = {
         userId: userData.uid,
-        month,
+        month: monthPicker, // keep YYYY-MM for UI
         municipality: toTitleCase(municipality),
         species,
         transaction_type: transactionType,
-        cost: parseFloat(cost),
-        predicted_quantity: data.predicted_quantity,
+        cost: payload.Cost,
+        predicted_quantity,
       };
 
-      const { data: inserted, error: insertError } = await supabase
+      const { data: inserted, error: insErr } = await supabase
         .from('prediction_records')
-        .insert(newPrediction)
+        .insert(newRec)
         .select('*')
         .single();
 
-      if (insertError) {
-        console.error('Error inserting prediction:', insertError);
-        alert(`Error saving prediction: ${insertError.message}`);
-        return;
-      }
+      if (insErr) throw insErr;
 
-      setPredictionHistory(prev => [inserted, ...prev]);
+      setPredictionHistory((prev) => [inserted, ...prev]);
       resetForm();
-    } catch (error) {
-      console.error("Prediction error:", error);
-      alert(`Error: ${error.message}`);
+    } catch (e) {
+      console.error(e);
+      alert(`Error: ${e.message}`);
       setPredictedQuantity(null);
     } finally {
       setLoading(false);
@@ -141,7 +131,7 @@ const Prediction = () => {
   };
 
   const resetForm = () => {
-    setMonth('');
+    setMonthPicker('');
     setSpecies('');
     setMunicipality('');
     setTransactionType('');
@@ -149,19 +139,15 @@ const Prediction = () => {
   };
 
   const deletePrediction = async (id) => {
-    try {
-      const { error } = await supabase
-        .from('prediction_records')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
-      setPredictionHistory(prev => prev.filter(p => p.id !== id));
-    } catch (err) {
-      console.error('Error deleting prediction:', err);
-      alert('Failed to delete prediction.');
+    const { error } = await supabase.from('prediction_records').delete().eq('id', id);
+    if (error) {
+      alert('Delete failed');
+    } else {
+      setPredictionHistory((p) => p.filter((x) => x.id !== id));
     }
   };
 
+  // --------------------------------------------------------------
   return (
     <div className="flex min-h-screen bg-blue-50">
       <Sidebar />
@@ -175,6 +161,7 @@ const Prediction = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+            {/* ---------- INPUT CARD ---------- */}
             <div className="lg:col-span-1">
               <Card title="Inputs">
                 <div className="flex flex-col gap-4">
@@ -183,8 +170,8 @@ const Prediction = () => {
                       type="month"
                       min="2019-01"
                       className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none hover:border-gray-400 transition-colors"
-                      value={month}
-                      onChange={(e) => setMonth(e.target.value)}
+                      value={monthPicker}
+                      onChange={(e) => setMonthPicker(e.target.value)}
                     />
                   </Field>
 
@@ -195,10 +182,9 @@ const Prediction = () => {
                       onChange={(e) => setSpecies(e.target.value)}
                     >
                       <option value="">Select species...</option>
-                      <option value="Tilapia">Tilapia</option>
-                      <option value="Koi Carp">Koi Carp</option>
-                      <option value="Common Carp">Common Carp</option>
-                      <option value="Hito">Hito</option>
+                      {['Tilapia', 'Koi Carp', 'Common Carp', 'Hito'].map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
                     </select>
                   </Field>
 
@@ -223,7 +209,7 @@ const Prediction = () => {
                         'San Isidro', 'San Miguel', 'Sevilla', 'Sierra Bullones',
                         'Sikatuna', 'Tagbilaran', 'Talibon', 'Trinidad', 'Tubigon',
                         'Ubay', 'Valencia'
-                      ].map(m => (
+                      ].map((m) => (
                         <option key={m} value={m} />
                       ))}
                     </datalist>
@@ -252,7 +238,7 @@ const Prediction = () => {
                       className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none hover:border-gray-400 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
                       value={cost}
                       onChange={(e) => {
-                        if (transactionType === 'Sale' && parseFloat(e.target.value) === 0) return;
+                        if (transactionType === 'Sale' && parseFloat(e.target.value) <= 0) return;
                         setCost(e.target.value);
                       }}
                       placeholder="e.g. 120"
@@ -271,6 +257,7 @@ const Prediction = () => {
               </Card>
             </div>
 
+            {/* ---------- RESULT & HISTORY ---------- */}
             <div className="lg:col-span-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card title="Predicted Quantity">
@@ -307,52 +294,55 @@ const Prediction = () => {
                   {predictionHistory.length === 0 ? (
                     <div className="text-center py-8">
                       <p className="text-gray-500">No predictions saved yet.</p>
-                      <p className="text-sm text-gray-400 mt-1">Generate a prediction to start tracking history.</p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Generate a prediction to start tracking history.
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex justify-end items-start mb-3">
-                          <button
-                            onClick={() => deletePrediction(predictionHistory[0].id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
+                      {predictionHistory.slice(0, 5).map((rec) => (
+                        <div key={rec.id} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex justify-end mb-2">
+                            <button
+                              onClick={() => deletePrediction(rec.id)}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <p className="text-gray-600">Municipality</p>
+                              <p className="font-medium">{rec.municipality}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Date</p>
+                              <p className="font-medium">
+                                {(() => {
+                                  const [y, m] = rec.month.split('-');
+                                  return `${m}-${y}`;
+                                })()}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Species</p>
+                              <p className="font-medium">{rec.species}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Type</p>
+                              <p className="font-medium">{rec.transaction_type}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Cost</p>
+                              <p className="font-medium">₱{Number(rec.cost).toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-600">Predicted</p>
+                              <p className="font-medium">{rec.predicted_quantity.toLocaleString()}</p>
+                            </div>
+                          </div>
                         </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <p className="text-sm text-gray-600">Target Municipality</p>
-                            <p className="font-medium">{predictionHistory[0].municipality}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Target Date</p>
-                            <p className="font-medium">
-                              {(() => {
-                                const [y, m] = predictionHistory[0].month.split('-');
-                                return `${m}-${y}`;
-                              })()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Species</p>
-                            <p className="font-medium">{predictionHistory[0].species}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Transaction Type</p>
-                            <p className="font-medium">{predictionHistory[0].transaction_type}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Cost</p>
-                            <p className="font-medium">₱{parseFloat(predictionHistory[0].cost).toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Predicted Quantity</p>
-                            <p className="font-medium">{predictionHistory[0].predicted_quantity.toLocaleString()}</p>
-                          </div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   )}
                 </Card>
