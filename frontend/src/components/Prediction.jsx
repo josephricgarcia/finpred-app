@@ -278,26 +278,20 @@ useEffect(() => {
 
                   <Field label="Municipality">
                     <select
-                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none cursor-pointer"
+                      className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none cursor-pointer"
                       value={municipality}
                       onChange={(e) => setMunicipality(e.target.value)}
                     >
                       <option value="">Select municipality...</option>
-                      {[
-                        'Alburquerque', 'Alicia', 'Antequera', 'Baclayon', 'Balilihan', 'Batuan',
-                        'Bien Unido', 'Bilar', 'Buenavista', 'Calape', 'Candijay', 'Carmen',
-                        'Catigbian', 'Clarin', 'Corella', 'Cortes', 'Dagohoy', 'Danao', 'Dauis',
-                        'Dimiao', 'Duero', 'Garcia Hernandez', 'Getafe', 'Guindulman',
-                        'Inabanga', 'Jagna', 'Lila', 'Loon', 'Mabini', 'Maribojoc', 'Panglao',
-                        'Pilar', 'Pres. Carlos P. Garcia', 'Sagbayan', 'San Isidro', 'San Miguel',
-                        'Sevilla', 'Sierra Bullones', 'Sikatuna', 'Tagbilaran', 'Talibon',
-                        'Trinidad', 'Tubigon', 'Ubay', 'Valencia'
-                      ].map((m) => (
-                        <option key={m} value={m}>{m}</option>
+
+                      {/* Use keys from MUNICIPALITY_MAP so values match the map (lowercase keys) */}
+                      {Object.keys(MUNICIPALITY_MAP).map((key) => (
+                        <option key={key} value={key}>
+                          {toTitleCase(key)}
+                        </option>
                       ))}
                     </select>
                   </Field>
-
 
                   <Field label="Transaction Type">
                     <select
