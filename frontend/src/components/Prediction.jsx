@@ -139,13 +139,35 @@ useEffect(() => {
       Species: speciesMap[species]
     };
 
+    const res = await fetch('/api/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    let result;
+    try {
+      result = await res.json();
+    } catch {
+      throw new Error('Server returned invalid JSON');
+    }
+
+    if (!res.ok) throw new Error(result?.error || 'Prediction failed');
+
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:5000/predict", {
+      const res = await fetch('/api/predict', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
+      let result;
+      try {
+        result = await res.json();
+      } catch {
+        throw new Error('Server returned invalid JSON');
+      }
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
