@@ -213,9 +213,6 @@ const Transactions = () => {
       );
     }
 
-    // Type filter removed
-
-    // Apply sorting
     filtered.sort((a, b) => {
       let aValue, bValue;
       
@@ -352,16 +349,13 @@ const Transactions = () => {
                   <div className="flex-1 min-w-64">
                     <input
                       type="text"
-                      placeholder="Search by beneficiary name, species, barangay, municipality, contact..."
+                      placeholder="Search by beneficiary name, species, barangay, municipality"
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
 
-                  {/* Filter by Type removed */}
-
-                {/* Sort by */}
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
